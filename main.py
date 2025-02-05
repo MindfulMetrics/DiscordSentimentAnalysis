@@ -15,8 +15,8 @@ import re
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-USERNAME = os.getenv('user')
-PASSWORD = os.getenv('pw')
+USERNAME = os.getenv('API_USERNAME')
+PASSWORD = os.getenv('API_PASSWORD')
 
 prompt_template_str = """ 
  You are tasked with analyzing a transcript of an online conversation between tech support and a customer. Use 'fetch_discord_messages' to get the conversation as a JSON object.
@@ -36,22 +36,24 @@ prompt_template_str = """
  </transcript> 
   
  Return a JSON response. Remember, a 0 score is negative, 50 is neutral and 100 is positive. 
- """ 
-  
+ """
+
 
 model = OpenAIModel('gpt-4o', api_key=OPENAI_API_KEY)
 sentiment_agent = Agent(
-        model=model, 
-        deps_type=CoversationObject,
-        system_prompt= prompt_template_str,
-        result_type=SummarizedOutput, 
-    )
+    model=model,
+    deps_type=CoversationObject,
+    system_prompt=prompt_template_str,
+    result_type=SummarizedOutput
+)
 
 # @sentiment_agent.tool
-def fetch_discord_messages(discord_id : str) -> dict:
+
+
+def fetch_discord_messages(discord_id: str) -> dict:
     url = f"http://134.195.91.7:5005/discord/{discord_id}/get_messages"
     response = requests.get(url, auth=HTTPBasicAuth(USERNAME, PASSWORD))
-    
+
     if response.status_code == 200:  # Check if the request was successful
         data = response.json()  # Parse JSON response
         conv_obj = CoversationObject(**data)
@@ -60,6 +62,7 @@ def fetch_discord_messages(discord_id : str) -> dict:
     else:
         return {"Error Code: ": response.status_code}
 
+
 def proccess_message(data: CoversationObject):
     try:
         # Create a mapping of author_id to author name
@@ -67,19 +70,23 @@ def proccess_message(data: CoversationObject):
         # Regex pattern to match <@author_id>
 
         author_tag_pattern = re.compile(r"<@([0-9]+)>")
-        
+
         for msg in data.messages:
             if msg["content"]:
                 # Replace all occurrences of author tags in content
-                msg["content"] = author_tag_pattern.sub(lambda m: author_map.get(m.group(1), m.group(0)), msg["content"])
-        
+                msg["content"] = author_tag_pattern.sub(
+                    lambda m: author_map.get(m.group(1), m.group(0)), msg["content"])
+
         return data
     except Exception as e:
         print("Error processing messages: ", e)
 
+
 def llm():
     pass
 
+
 dict_data = fetch_discord_messages(1333653475753721936)
-result = sentiment_agent.run_sync("What is the sentiment of this conversation?", deps=dict_data)
+result = sentiment_agent.run_sync(
+    "What is the sentiment of this conversation?", deps=dict_data)
 print(result.data)
