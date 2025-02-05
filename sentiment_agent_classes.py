@@ -42,6 +42,10 @@ class EscalationAnalysis(BaseModel):
     
     sentiment_timeline: List[float] = Field(...,
         description="Sentiment scores (0-100) for each customer message in order")
+
+    technical_summary: str = Field(...,
+        description="Brief and concise summary of the technical issue customer is facing, along with steps taken to try and resolve it."
+    )
     
     interaction_health: float = Field(...,
         description="Quality of communication (0=broken, 100=excellent)",
