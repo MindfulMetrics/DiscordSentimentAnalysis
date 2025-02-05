@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.models.openai import OpenAIModel
-from sentiment_agent_classes import CoversationObject, SummarizedOutput
+from sentiment_agent_classes import CoversationObject, EscalationAnalysis
 import os
 import re
 
@@ -20,36 +20,29 @@ USERNAME = os.getenv('API_USERNAME')
 PASSWORD = os.getenv('API_PASSWORD')
 
 prompt_template_str = """
-You are a real-time sentiment analysis assistant focused on troubleshooting forums. Your task is to analyze an ongoing conversation between a customer experiencing product issues and a technician providing support. The goal is to assess the sentiment throughout the troubleshooting process and detect any major dissatisfaction or severe frustration aimed at the technician that may require escalation.
+You are a real-time sentiment analyzer for technical support conversations. Analyze messages as they arrive to detect customer frustration that requires escalation. Focus on:
+1. Escalation Triggers: Detect severe dissatisfaction DIRECTED AT SUPPORT STAFF (e.g., personal attacks, threats, repeated complaints about service quality)
+2. Sentiment Trajectory: Track if frustration is increasing despite resolution attempts
+3. Support Interaction Quality: Identify breakdowns in communication or unhelpful responses
+4. Urgency Signals: Look for time-sensitive issues ("costing me money") or legal threats
 
-1. Real-Time Conversation Summary:
-    * Provide a concise summary of the conversation, highlighting the customer’s reported problem, the symptoms experienced, and the troubleshooting steps or advice provided by the technician.
+Analysis Guidelines:
+- Prioritize customer messages but assess agent responses for professionalism
+- Recent messages (last 3 exchanges) weigh 60% in scoring
+- Flag repeated frustration patterns (>2 negative messages)
+- Consider message intensity (CAPS, emojis, punctuation!!!)
+- Update assessment dynamically with each new message
 
-2. Overall Troubleshooting Sentiment Analysis:
-    * Evaluate the sentiment of the entire conversation, with special emphasis on the customer's responses.
-    * Identify any key phrases that indicate severe frustration or dissatisfaction (e.g., “I can’t believe this isn’t working”, “your advice is useless”, “I’m fed up with these issues”)—particularly if they target the technician.
-    * Assign an overall sentiment score on a scale from 0 to 100 (0 = very negative, 50 = neutral, 100 = very positive).
-
-3. Final Message Sentiment:
-    * Assess the sentiment of the most recent (final) customer message in the conversation.
-    * Provide a sentiment score on the same 0 to 100 scale along with a brief explanation.
-
-4. Escalation Determination:
-    * Determine whether the conversation exhibits signs of major dissatisfaction or severe frustration directed toward the technician.
-    * Flag the conversation for escalation if the overall sentiment score is critically low (e.g., below 30) or if the final message explicitly expresses severe frustration with the technician.
-    
-5. Output Format:
-    * Return your results as a JSON object that adheres to the schema provided. Ensure that all reasoning is clear and concise to support fast decision-making.
+Required Output: JSON with escalation decision and supporting evidence
 """
 
+model = OpenAIModel('gpt-4o-mini', api_key=OPENAI_API_KEY)
 
-#model = OpenAIModel('gpt-4o-mini', api_key=OPENAI_API_KEY)
-
-model = OpenAIModel(
-    'mistralai/ministral-8b',
-    base_url='https://openrouter.ai/api/v1',
-    api_key='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',
-)
+# model = OpenAIModel(
+#     'qwen/qwen-turbo',
+#     base_url='https://openrouter.ai/api/v1',
+#     api_key='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',
+# )
 
 settings = ModelSettings(temperature=0)
 
@@ -57,7 +50,7 @@ sentiment_agent = Agent(
     model=model,
     deps_type=CoversationObject,
     system_prompt=prompt_template_str,
-    result_type=SummarizedOutput
+    result_type=EscalationAnalysis
 )
 
 # @sentiment_agent.tool
