@@ -73,16 +73,29 @@ def parse_discord_messages(discord_id: str) -> str:
             else:
                 conversation += "[Technician]: "
             conversation += f"{message['content']}\n"
-        return conversation
+        return {
+            "thread_url": f"https://discord.com/channels/1233205646032371722/{data['thread_id']}",
+            "customer_name": data['customer_name'],
+            "customer_email": data['customer_email'],
+            "conversation":conversation, 
+            "length":data['length'], 
+            "status":data['status'], 
+            "tags":data['tags'], 
+            "hs_owner_id":data['hs_owner_id']
+        }
     else:
         return {"Error Code: ": response.status_code}
 
 
 transcript = parse_discord_messages(1318963547883049010)
-result = sentiment_agent.run_sync(
-f"""Carefully analyze the sentiment of this conversation:
-<conversation>
-{transcript} 
-</conversation>
-""", model_settings=settings)
-print(result.data)
+
+if transcript['length'] > 10 and transcript['status'] == "open":
+    result = sentiment_agent.run_sync(
+    f"""Carefully analyze the sentiment of this conversation:
+    <conversation>
+    {transcript['conversation']}
+    </conversation>
+    """, model_settings=settings)
+    print(result.data)
+else:
+    print(f"Conversation length: {transcript['length']} too short. Not processed")
