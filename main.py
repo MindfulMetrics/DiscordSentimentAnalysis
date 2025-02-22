@@ -4,7 +4,7 @@ from openai import OpenAI
 import aiohttp
 from dotenv import load_dotenv
 import motor.motor_asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.settings import ModelSettings
@@ -93,13 +93,13 @@ async def parse_discord_messages(discord_id: str) -> dict:
 
 async def main():
     aa_readonly_motor_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("AA_READONLY_MONGO_CONNECTION"))
-    
+    yesterday_time = datetime.now() - timedelta(days=1)
     tech_ticket_collection = aa_readonly_motor_client.get_database('metrics-database').get_collection('tech_tickets')
 
 
     query = {
         "hs_pipeline_stage": 88539431,
-        "last_update": {"$gte": datetime(2025, 2, 5)},
+        "last_update": {"$gte": yesterday_time},
         "$or": [
             {"resolved_date": None},
             {"resolved_date": {"$exists": False}}
@@ -182,8 +182,8 @@ async def main():
                     "attachments": []
                 }
                 # post webhook data to: https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j
-                webhook_url = "https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j"
-
+                # webhook_url = "https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j"
+                webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
                 async with aiohttp.ClientSession() as session:
                     async with session.post(webhook_url, json=webhook_data) as response:
                         if response.status == 200 or response.status == 204:
