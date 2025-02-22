@@ -14,6 +14,8 @@ import os
 import asyncio
 import json
 import base64
+from rocketry import Rocketry
+
 
 
 # Load the .env file
@@ -116,8 +118,10 @@ async def post_button(session: aiohttp.ClientSession, chanel_id: str, json_data:
         print(f"An error occurred during the POST request: {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-    
 
+
+def task_main():
+    asyncio.run(main())
 
 async def main():
     aa_readonly_motor_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("AA_READONLY_MONGO_CONNECTION"))
@@ -215,7 +219,7 @@ async def main():
                 # webhook_url = "https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j"
                 
                 webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
-                
+
                 test = {"content": "This is a test"}
                 async with aiohttp.ClientSession() as session:
                     async with session.post(webhook_url, json=webhook_data) as response:
@@ -232,4 +236,13 @@ async def main():
             print(f"Conversation length: {transcript['length']} too short. Not processed")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    app = Rocketry()
+    
+    app.session.config.silence_task_prerun = True
+    app.session.config.silence_cond_check  = True
+
+    @app.task("daily at 8:00 am timezone='America/Los_Angeles'")
+    def scheduled_task():
+        task_main()
+
+    app.run()
