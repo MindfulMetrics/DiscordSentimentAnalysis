@@ -13,6 +13,7 @@ from sentiment_agent_classes import CoversationObject, EscalationAnalysis
 import os
 import asyncio
 import json
+import base64
 
 
 # Load the .env file
@@ -90,6 +91,33 @@ async def parse_discord_messages(discord_id: str) -> dict:
                 }
             else:
                 return {"Error Code: ": response.status}
+            
+async def post_button(session: aiohttp.ClientSession, chanel_id: str, json_data: dict):
+    post_button_url = f"http://134.195.91.7:5005/discord/{chanel_id}/post_msg_with_buttons"
+
+    # Create the authentication string
+    auth_string = f'{USERNAME}:{PASSWORD}'
+    auth_bytes = auth_string.encode('utf-8')
+    base64_bytes = base64.b64encode(auth_bytes)
+    base64_string = base64_bytes.decode('utf-8')
+
+    headers = {
+        'Authorization': f'Basic {base64_string}'
+    }
+
+    try:
+        async with session.post(post_button_url, json=json_data, headers=headers) as test_response:
+            response_data = await test_response.json()
+            if test_response.status == 200:
+                print("POST request successful!")
+            else:
+                print(f"POST request failed with status code: {test_response.status}")
+    except aiohttp.ClientError as e:
+        print(f"An error occurred during the POST request: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+    
+
 
 async def main():
     aa_readonly_motor_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("AA_READONLY_MONGO_CONNECTION"))
@@ -182,12 +210,19 @@ async def main():
                     "attachments": []
                 }
                 # post webhook data to: https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j
+                
+                # Original Webhook URL for #automated-esclations channel:
                 # webhook_url = "https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j"
+                
                 webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
+                
+                test = {"content": "This is a test"}
                 async with aiohttp.ClientSession() as session:
                     async with session.post(webhook_url, json=webhook_data) as response:
                         if response.status == 200 or response.status == 204:
                             print("Webhook sent successfully")
+                            # call post button to update ticket status
+                            await post_button(session, 1245933521609162844, test)
                         else:
                             print(f"Failed to send webhook. Status code: {response.status}")
                             error_text = await response.text()
