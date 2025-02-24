@@ -1,4 +1,5 @@
 
+from pymongo.collection import Collection
 from openai import OpenAI
 # from fastapi import FastAPI
 import aiohttp
@@ -14,12 +15,16 @@ import os
 import asyncio
 import json
 import base64
-from rocketry import Rocketry
+from aioclock import AioClock, At
+from aioclock.group import Group
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 
 
 # Load the .env file
 load_dotenv()
+group = Group()
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 USERNAME = os.getenv('API_USERNAME')
@@ -59,8 +64,6 @@ sentiment_agent = Agent(
     result_type=EscalationAnalysis
 )
 
-# @sentiment_agent.tool
-    
 async def parse_discord_messages(discord_id: str) -> dict:
     url = f"http://134.195.91.7:5005/discord/{discord_id}/get_messages"
     async with aiohttp.ClientSession() as session:
@@ -79,7 +82,7 @@ async def parse_discord_messages(discord_id: str) -> dict:
                         conversation += "[Technician]: "
                     conversation += f"{message['content']}\n"
                 return {
-                    "thread_url": f"https://discord.com/channels/1233205646032371722/{data['thread_id']}",
+                    "thread_url": f"https://discord.com/channels/1233205646032371722/{data['thread_id']}/",
                     "customer_name": data['customer_name'],
                     "customer_email": data['customer_email'],
                     "conversation": conversation,
@@ -93,10 +96,11 @@ async def parse_discord_messages(discord_id: str) -> dict:
                 }
             else:
                 return {"Error Code: ": response.status}
-            
-async def post_button(session: aiohttp.ClientSession, chanel_id: str, json_data: dict):
+
+async def post_escalation_msg(chanel_id: str, json_data: dict):
     post_button_url = f"http://134.195.91.7:5005/discord/{chanel_id}/post_msg_with_buttons"
 
+    data = {"content": json_data}
     # Create the authentication string
     auth_string = f'{USERNAME}:{PASSWORD}'
     auth_bytes = auth_string.encode('utf-8')
@@ -108,40 +112,62 @@ async def post_button(session: aiohttp.ClientSession, chanel_id: str, json_data:
     }
 
     try:
-        async with session.post(post_button_url, json=json_data, headers=headers) as test_response:
-            response_data = await test_response.json()
-            if test_response.status == 200:
-                print("POST request successful!")
-            else:
-                print(f"POST request failed with status code: {test_response.status}")
+        async with aiohttp.ClientSession() as session:
+            async with session.post(post_button_url, json=json_data, headers=headers) as response:
+                response_data = await response.json()
+                if response.status == 200:
+                    print("POST request successful!")
+                else:
+                    print(f"POST request failed with status code: {response.status}")
     except aiohttp.ClientError as e:
         print(f"An error occurred during the POST request: {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+        
+async def update_sentiment_alerted_at(collection: Collection, tracking_id: str):
+    # Get the current timestamp
+    current_time = datetime.now()
+    
+    # Update the document with the new sentiment_alerted_at field
+    result = collection.update_one(
+        {"tracking_id": tracking_id},
+        {"$set": {"sentiment_alerted_at": current_time}}
+    )
+    
+    if result.modified_count == 1:
+        print(f"Successfully updated sentiment_alerted_at for _id: {tracking_id}")
+    else:
+        print(f"No document found with tracking_id: {tracking_id}")
 
 
-def task_main():
-    asyncio.run(main())
-
+# Execute the Main function every day at 8:00:00 AM PST
+@group.task(trigger=At(tz="America/Los_Angeles", hour=20, minute=49, second=50))
 async def main():
+    print("🚀 main() task has started executing!")  # Debugging print
+
     aa_readonly_motor_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("AA_READONLY_MONGO_CONNECTION"))
-    yesterday_time = datetime.now() - timedelta(days=1)
     tech_ticket_collection = aa_readonly_motor_client.get_database('metrics-database').get_collection('tech_tickets')
+    yesterday = datetime.now().date() - timedelta(days=1)
+    one_week_ago = datetime.now().date() - timedelta(days=7)
 
-
+    # Query to find open tickets that have not been alerted in the last week or have never been alerted
     query = {
         "hs_pipeline_stage": 88539431,
-        "last_update": {"$gte": yesterday_time},
+        "$or": [
+            {"sentiment_alerted_at": {"$exists": False}},
+            {"sentiment_alerted_at": {"$lt": one_week_ago}},
+        ],
+        "last_update": {"$gte": yesterday},
         "$or": [
             {"resolved_date": None},
             {"resolved_date": {"$exists": False}}
         ]
     }
     projection = {"_id": 0, "tracking_id": 1}
-
     results = await tech_ticket_collection.find(query, projection).to_list(length=None)
-    print(f"Fount {len(results)} open tickets")
-    
+    print(f"Found {len(results)} open tickets")
+
+    # Sentiment Analysis
     for res in results:
         transcript = await parse_discord_messages(res['tracking_id'])
 
@@ -214,35 +240,32 @@ async def main():
                     "attachments": []
                 }
                 # post webhook data to: https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j
-                
+
                 # Original Webhook URL for #automated-esclations channel:
                 # webhook_url = "https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j"
-                
-                webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
 
-                test = {"content": "This is a test"}
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(webhook_url, json=webhook_data) as response:
-                        if response.status == 200 or response.status == 204:
-                            print("Webhook sent successfully")
-                            # call post button to update ticket status
-                            await post_button(session, 1245933521609162844, test)
-                        else:
-                            print(f"Failed to send webhook. Status code: {response.status}")
-                            error_text = await response.text()
-                            print(f"Error details: {error_text}")
-                            print(f"Webhook data: {json.dumps(webhook_data, indent=2)}")
+                webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
+                chanel_id = "1245933521609162844"
+                await post_escalation_msg(chanel_id, webhook_data)
+                await update_sentiment_alerted_at(tech_ticket_collection, res['tracking_id'])
+
         else:
             print(f"Conversation length: {transcript['length']} too short. Not processed")
 
+@asynccontextmanager
+async def lifespan(aio_clock: AioClock) -> AsyncGenerator[AioClock]:
+    # starting up
+    print(
+        "Welcome to the Async Chronicles! Did you know a group of unicorns is called a blessing? Well, now you do!"
+    )
+    yield aio_clock
+    # shuting down
+    print("Going offline. Remember, if your code is running, you better go catch it!")
+
 if __name__ == "__main__":
-    app = Rocketry()
     
-    app.session.config.silence_task_prerun = True
-    app.session.config.silence_cond_check  = True
+    app = AioClock(lifespan=lifespan)
+    app.include_group(group)
 
-    @app.task("daily at 8:00 am timezone='America/Los_Angeles'")
-    def scheduled_task():
-        task_main()
-
-    app.run()
+    print("Starting AioClock...")  # Debugging print
+    asyncio.run(app.serve())
