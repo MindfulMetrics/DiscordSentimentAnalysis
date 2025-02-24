@@ -1,21 +1,18 @@
 
 from pymongo.collection import Collection
-from openai import OpenAI
 # from fastapi import FastAPI
 import aiohttp
 from dotenv import load_dotenv
 import motor.motor_asyncio
-from datetime import datetime, timedelta
-from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext
+from datetime import datetime, timedelta, timezone
+from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.models.openai import OpenAIModel
 from sentiment_agent_classes import CoversationObject, EscalationAnalysis
 import os
 import asyncio
-import json
 import base64
-from aioclock import AioClock, At
+from aioclock import AioClock, At, Once
 from aioclock.group import Group
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -31,8 +28,8 @@ USERNAME = os.getenv('API_USERNAME')
 PASSWORD = os.getenv('API_PASSWORD')
 
 prompt_template_str = """
-You are a real-time sentiment analyzer for technical support conversations. Analyze messages as they arrive to detect customer frustration that requires escalation. Focus on:
-1. Escalation Triggers: Detect severe dissatisfaction DIRECTED AT SUPPORT STAFF (e.g., personal attacks, threats, repeated complaints about service quality)
+You are a real-time sentiment analyzer for technical support conversations. Analyze messages as they arrive to detect severe customer frustration that requires escalation to management or a supervisor. Focus on:
+1. Escalation Triggers: Detect severe dissatisfaction DIRECTED AT SUPPORT STAFF (e.g., personal attacks, threats, threatening legal action, mention of lost money, repeated complaints about service quality)
 2. Sentiment Trajectory: Track if frustration is increasing despite resolution attempts
 3. Support Interaction Quality: Identify breakdowns in communication or unhelpful responses
 4. Urgency Signals: Look for time-sensitive issues ("costing me money") or legal threats
@@ -42,8 +39,7 @@ Analysis Guidelines:
 - Recent messages (last 3 exchanges) weigh 60% in scoring
 - Flag repeated frustration patterns (>2 negative messages)
 - Consider message intensity (CAPS, emojis, punctuation!!!)
-- Update assessment dynamically with each new message
-
+- Only escalate severe cases (e.g., threats, legal action). Confidence > 70% and multiple escalation factors present. Do not escalate for minor issues or customer dissatisfaction.
 Required Output: JSON with escalation decision and supporting evidence
 """
 
@@ -59,6 +55,7 @@ settings = ModelSettings(temperature=0)
 
 sentiment_agent = Agent(
     model=model,
+    model_settings=settings,
     deps_type=CoversationObject,
     system_prompt=prompt_template_str,
     result_type=EscalationAnalysis
@@ -126,10 +123,10 @@ async def post_escalation_msg(chanel_id: str, json_data: dict):
         
 async def update_sentiment_alerted_at(collection: Collection, tracking_id: str):
     # Get the current timestamp
-    current_time = datetime.now()
+    current_time = datetime.now(timezone.utc)
     
     # Update the document with the new sentiment_alerted_at field
-    result = collection.update_one(
+    result = await collection.update_one(
         {"tracking_id": tracking_id},
         {"$set": {"sentiment_alerted_at": current_time}}
     )
@@ -140,15 +137,16 @@ async def update_sentiment_alerted_at(collection: Collection, tracking_id: str):
         print(f"No document found with tracking_id: {tracking_id}")
 
 
-# Execute the Main function every day at 8:00:00 AM PST
-@group.task(trigger=At(tz="America/Los_Angeles", hour=20, minute=49, second=50))
+# Execute the Main function every day at 7:49:00 AM PST
+#@group.task(trigger=At(tz="America/Los_Angeles", hour=7, minute=49, second=0))
+@group.task(trigger=Once()) # Trigger once for testing
 async def main():
     print("🚀 main() task has started executing!")  # Debugging print
 
-    aa_readonly_motor_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("AA_READONLY_MONGO_CONNECTION"))
-    tech_ticket_collection = aa_readonly_motor_client.get_database('metrics-database').get_collection('tech_tickets')
-    yesterday = datetime.now().date() - timedelta(days=1)
-    one_week_ago = datetime.now().date() - timedelta(days=7)
+    aa_motor_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("AA_MONGO_CONNECTION"))
+    tech_ticket_collection = aa_motor_client.get_database('metrics-database').get_collection('tech_tickets')
+    yesterday = datetime.combine(datetime.now().date() - timedelta(days=1), datetime.min.time())
+    one_week_ago = datetime.combine(datetime.now().date() - timedelta(days=7), datetime.min.time())
 
     # Query to find open tickets that have not been alerted in the last week or have never been alerted
     query = {
@@ -157,11 +155,7 @@ async def main():
             {"sentiment_alerted_at": {"$exists": False}},
             {"sentiment_alerted_at": {"$lt": one_week_ago}},
         ],
-        "last_update": {"$gte": yesterday},
-        "$or": [
-            {"resolved_date": None},
-            {"resolved_date": {"$exists": False}}
-        ]
+        "last_update": {"$gte": yesterday}
     }
     projection = {"_id": 0, "tracking_id": 1}
     results = await tech_ticket_collection.find(query, projection).to_list(length=None)
@@ -244,7 +238,7 @@ async def main():
                 # Original Webhook URL for #automated-esclations channel:
                 # webhook_url = "https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j"
 
-                webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
+                #webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
                 chanel_id = "1245933521609162844"
                 await post_escalation_msg(chanel_id, webhook_data)
                 await update_sentiment_alerted_at(tech_ticket_collection, res['tracking_id'])
