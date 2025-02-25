@@ -121,6 +121,33 @@ async def post_escalation_msg(chanel_id: str, json_data: dict):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         
+async def post_latency_msg(chanel_id: str, json_data: dict):
+    post_button_url = f"http://134.195.91.7:5005/discord/{chanel_id}/post_msg_with_buttons"
+
+    data = {"content": json_data}
+    # Create the authentication string
+    auth_string = f'{USERNAME}:{PASSWORD}'
+    auth_bytes = auth_string.encode('utf-8')
+    base64_bytes = base64.b64encode(auth_bytes)
+    base64_string = base64_bytes.decode('utf-8')
+
+    headers = {
+        'Authorization': f'Basic {base64_string}'
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(post_button_url, json=json_data, headers=headers) as response:
+                response_data = await response.json()
+                if response.status == 200:
+                    print("POST request successful!")
+                else:
+                    print(f"POST request failed with status code: {response.status}")
+    except aiohttp.ClientError as e:
+        print(f"An error occurred during the POST request: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        
 async def update_sentiment_alerted_at(collection: Collection, tracking_id: str):
     # Get the current timestamp
     current_time = datetime.now(timezone.utc)
@@ -160,7 +187,7 @@ async def main():
     projection = {"_id": 0, "tracking_id": 1}
     results = await tech_ticket_collection.find(query, projection).to_list(length=None)
     print(f"Found {len(results)} open tickets")
-
+    
     # Sentiment Analysis
     for res in results:
         transcript = await parse_discord_messages(res['tracking_id'])
@@ -240,11 +267,63 @@ async def main():
 
                 #webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
                 chanel_id = "1245933521609162844"
-                await post_escalation_msg(chanel_id, webhook_data)
-                await update_sentiment_alerted_at(tech_ticket_collection, res['tracking_id'])
+                #await post_escalation_msg(chanel_id, webhook_data)
+                #await update_sentiment_alerted_at(tech_ticket_collection, res['tracking_id'])
 
         else:
             print(f"Conversation length: {transcript['length']} too short. Not processed")
+           
+    # Latency Notification
+    for res in results:
+        if res.latency_stats.max_latency > 1200 or res.latency_stats.avg_latency > 1200:
+            latency_chanel_id = "1245933521609162844"
+            latency_webhook_data = {
+                "embeds": [
+                    {
+                    "title": "🚨 Latency Notification: Delayed Support Response 🚨",
+                    "description": "A support ticket has experienced severe response latency. Please review and take action as needed.",
+                    "color": 16711680,
+                    "fields": [
+                        {
+                        "name": "📌 Ticket Link",
+                        "value": "[Click here to view the ticket](https://your-support-platform.com/ticket/12345)",
+                        "inline": False
+                        },
+                        {
+                        "name": "👤 Ticket Owner",
+                        "value": "JohnDoe",
+                        "inline": True
+                        },
+                        {
+                        "name": "⏳ Min Latency",
+                        "value": "12 minutes",
+                        "inline": True
+                        },
+                        {
+                        "name": "⏳ Avg Latency",
+                        "value": "34 minutes",
+                        "inline": True
+                        },
+                        {
+                        "name": "⏳ Max Latency",
+                        "value": "76 minutes",
+                        "inline": True
+                        }
+                    ],
+                    "footer": {
+                        "text": "Support Team • Please prioritize this ticket",
+                    },
+                    "timestamp": "2025-02-25T12:00:00Z"
+                    }
+                ]
+            }
+            
+            await post_latency_msg(latency_chanel_id, latency_webhook_data)
+            break
+
+            
+
+
 
 @asynccontextmanager
 async def lifespan(aio_clock: AioClock) -> AsyncGenerator[AioClock]:
