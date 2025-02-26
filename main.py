@@ -12,7 +12,7 @@ from sentiment_agent_classes import CoversationObject, EscalationAnalysis
 import os
 import asyncio
 import base64
-from aioclock import AioClock, At, Once
+from aioclock import AioClock, At, Once, Every
 from aioclock.group import Group
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -94,34 +94,7 @@ async def parse_discord_messages(discord_id: str) -> dict:
             else:
                 return {"Error Code: ": response.status}
 
-async def post_escalation_msg(chanel_id: str, json_data: dict):
-    post_button_url = f"http://134.195.91.7:5005/discord/{chanel_id}/post_msg_with_buttons"
-
-    data = {"content": json_data}
-    # Create the authentication string
-    auth_string = f'{USERNAME}:{PASSWORD}'
-    auth_bytes = auth_string.encode('utf-8')
-    base64_bytes = base64.b64encode(auth_bytes)
-    base64_string = base64_bytes.decode('utf-8')
-
-    headers = {
-        'Authorization': f'Basic {base64_string}'
-    }
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(post_button_url, json=json_data, headers=headers) as response:
-                response_data = await response.json()
-                if response.status == 200:
-                    print("POST request successful!")
-                else:
-                    print(f"POST request failed with status code: {response.status}")
-    except aiohttp.ClientError as e:
-        print(f"An error occurred during the POST request: {e}")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        
-async def post_latency_msg(chanel_id: str, json_data: dict):
+async def post_msg(chanel_id: str, json_data: dict):
     post_button_url = f"http://134.195.91.7:5005/discord/{chanel_id}/post_msg_with_buttons"
 
     data = {"content": json_data}
@@ -166,7 +139,7 @@ async def update_sentiment_alerted_at(collection: Collection, tracking_id: str):
 
 # Execute the Main function every day at 7:49:00 AM PST
 #@group.task(trigger=At(tz="America/Los_Angeles", hour=7, minute=49, second=0))
-@group.task(trigger=Once()) # Trigger once for testing
+#@group.task(trigger=Once()) # Trigger once for testing
 async def main():
     print("🚀 main() task has started executing!")  # Debugging print
 
@@ -202,7 +175,7 @@ async def main():
             print(result.data)
             if result.data.escalation_required:
                 # Build JSON
-                webhook_data = {
+                webhook_data =  webhook_data = {
                     #"content": f"Customer {transcript['customer_name']} is expressing severe dissatisfaction with their [tech support ticket]({transcript['thread_url']}).",
                     "embeds": [
                         {
@@ -260,68 +233,105 @@ async def main():
                     "username": "Marcus",
                     "attachments": []
                 }
+
                 # post webhook data to: https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j
 
                 # Original Webhook URL for #automated-esclations channel:
                 # webhook_url = "https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j"
 
-                #webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
+                webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
                 chanel_id = "1245933521609162844"
-                #await post_escalation_msg(chanel_id, webhook_data)
-                #await update_sentiment_alerted_at(tech_ticket_collection, res['tracking_id'])
-
+                await post_msg(chanel_id, webhook_data)
+                await update_sentiment_alerted_at(tech_ticket_collection, res['tracking_id'])
         else:
             print(f"Conversation length: {transcript['length']} too short. Not processed")
-           
+
+# Executes check_latency every hour
+#@group.task(trigger=Every(minutes=60)) 
+@group.task(trigger=Once()) # Trigger once for testing
+async def check_latency():
+    print("⏳ Checking latency...")   
+    
+    aa_motor_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("AA_MONGO_CONNECTION"))
+    tech_ticket_collection = aa_motor_client.get_database('metrics-database').get_collection('tech_tickets')
+    employee_collection = aa_motor_client.get_database('metrics-database').get_collection('employees')
+   
+    # Query to find open tickets where avg > 600 or max > 1200 & notifications have not been sent 
+    query = {
+            "latency_stats": { "$exists": True },
+            "$and": [
+                {
+                "$or": [
+                    { "latency_stats.max_latency": { "$gt": 1200 } },
+                    { "latency_stats.avg_latency": { "$gt": 600 } }
+                ]
+                },
+                {
+                "$or": [
+                    { "latency_stats.max_notified": False },
+                    { "latency_stats.avg_notified": False }
+                ]
+                }
+            ]
+        }
+    projection = {"_id": 0,
+                  "tracking_id": 1, 
+                  "technician" : 1,
+                  "latency_stats": 1}
+    results = await tech_ticket_collection.find(query, projection).to_list(length=None)
+    print(f"Found {len(results)} open tickets")
+    latency_chanel_id = "1245933521609162844" #test value 
+    employeeProjection = {"discord_id":1}
+    
     # Latency Notification
     for res in results:
-        if res.latency_stats.max_latency > 1200 or res.latency_stats.avg_latency > 1200:
-            latency_chanel_id = "1245933521609162844"
-            latency_webhook_data = {
-                "embeds": [
+        print(res)
+        employeeQuery = { "hs_id": res['technician'] }
+        employeeResults = await employee_collection.find_one(employeeQuery, employeeProjection)
+        tech_discord_id = employeeResults['discord_id'][0]
+        latency_webhook_data = {
+            "embeds": [
+                {
+                "title": "🚨 Latency Notification: Delayed Support Response 🚨",
+                "description": "A support ticket has experienced severe response latency. Please review and take action as needed.",
+                "color": 16711680,
+                "fields": [
                     {
-                    "title": "🚨 Latency Notification: Delayed Support Response 🚨",
-                    "description": "A support ticket has experienced severe response latency. Please review and take action as needed.",
-                    "color": 16711680,
-                    "fields": [
-                        {
-                        "name": "📌 Ticket Link",
-                        "value": "[Click here to view the ticket](https://your-support-platform.com/ticket/12345)",
-                        "inline": False
-                        },
-                        {
-                        "name": "👤 Ticket Owner",
-                        "value": "JohnDoe",
-                        "inline": True
-                        },
-                        {
-                        "name": "⏳ Min Latency",
-                        "value": "12 minutes",
-                        "inline": True
-                        },
-                        {
-                        "name": "⏳ Avg Latency",
-                        "value": "34 minutes",
-                        "inline": True
-                        },
-                        {
-                        "name": "⏳ Max Latency",
-                        "value": "76 minutes",
-                        "inline": True
-                        }
-                    ],
-                    "footer": {
-                        "text": "Support Team • Please prioritize this ticket",
+                    "name": "📌 Ticket Link",
+                    "value": "[Click here to view the ticket](https://your-support-platform.com/ticket/12345)",
+                    "inline": False
                     },
-                    "timestamp": "2025-02-25T12:00:00Z"
+                    {
+                    "name": "👤 Ticket Owner",
+                    "value": tech_discord_id,
+                    "inline": True
+                    },
+                    {
+                    "name": "⏳ Min Latency",
+                    "value": res["latency_stats"]["min_latency"],
+                    "inline": True
+                    },
+                    {
+                    "name": "⏳ Avg Latency",
+                    "value": res["latency_stats"]["avg_latency"],
+                    "inline": True
+                    },
+                    {
+                    "name": "⏳ Max Latency",
+                    "value":res["latency_stats"]["max_latency"],
+                    "inline": True
                     }
-                ]
-            }
+                ],
+                "footer": {
+                    "text": "Support Team • Please prioritize this ticket",
+                },
+                "timestamp": "2025-02-25T12:00:00Z"
+                }
+            ]
+        }
             
-            await post_latency_msg(latency_chanel_id, latency_webhook_data)
-            break
-
-            
+        await post_msg(latency_chanel_id, latency_webhook_data)
+        break
 
 
 
@@ -335,7 +345,7 @@ async def lifespan(aio_clock: AioClock) -> AsyncGenerator[AioClock]:
     # shuting down
     print("Going offline. Remember, if your code is running, you better go catch it!")
 
-if __name__ == "__main__":
+if __name__ == "__main__": 
     
     app = AioClock(lifespan=lifespan)
     app.include_group(group)
