@@ -292,43 +292,44 @@ async def check_latency():
         latency_webhook_data = {
             "embeds": [
                 {
-                "title": "🚨 Latency Notification: Delayed Support Response 🚨",
-                "description": "A support ticket has experienced severe response latency. Please review and take action as needed.",
-                "color": 16711680,
-                "fields": [
-                    {
-                    "name": "📌 Ticket Link",
-                    "value": "[Click here to view the ticket](https://your-support-platform.com/ticket/12345)",
-                    "inline": False
-                    },
-                    {
-                    "name": "👤 Ticket Owner",
-                    "value": tech_discord_id,
-                    "inline": True
-                    },
-                    {
-                    "name": "⏳ Min Latency",
-                    "value": res["latency_stats"]["min_latency"],
-                    "inline": True
-                    },
-                    {
-                    "name": "⏳ Avg Latency",
-                    "value": res["latency_stats"]["avg_latency"],
-                    "inline": True
-                    },
-                    {
-                    "name": "⏳ Max Latency",
-                    "value":res["latency_stats"]["max_latency"],
-                    "inline": True
-                    }
-                ],
-                "footer": {
-                    "text": "Support Team • Please prioritize this ticket",
-                },
-                "timestamp": "2025-02-25T12:00:00Z"
+                    "title": "🚨 Latency Notification: Delayed Support Response 🚨",
+                    "description": "A support ticket has experienced severe response latency. Please review and take action as needed.",
+                    "color": 16711680,
+                    "fields": [
+                        {
+                            "name": "📌 Ticket Link",
+                            "value": "[Click here to view the ticket](https://your-support-platform.com/ticket/12345)",
+                            "inline": False
+                        },
+                        {
+                            "name": "👤 Ticket Owner",
+                            "value": str(tech_discord_id),  # Ensure it's a string
+                            "inline": True
+                        },
+                        {
+                            "name": "⏳ Min Latency",
+                            "value": f"{res['latency_stats']['min_latency']} minutes",  # Convert to string
+                            "inline": True
+                        },
+                        {
+                            "name": "⏳ Avg Latency",
+                            "value": f"{res['latency_stats']['avg_latency']} minutes",  # Convert to string
+                            "inline": True
+                        },
+                        {
+                            "name": "⏳ Max Latency",
+                            "value": f"{res['latency_stats']['max_latency']} minutes",  # Convert to string
+                            "inline": True
+                        }
+                    ],
+                    "footer": {
+                        "text": "Support Team • Please prioritize this ticket"
+                    },  # ❌ Removed extra comma here
+                    "timestamp": "2025-02-25T12:00:00Z"
                 }
             ]
-        }
+            }
+
             
         await post_msg(latency_chanel_id, latency_webhook_data)
         break
