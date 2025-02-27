@@ -17,7 +17,9 @@ from aioclock.group import Group
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-
+TEST_CHANNEL = "1245933521609162844"
+AUTOMATED_ESCALATIONS_CHANNEL = "1336771513520492544"
+LATENCY_WARNINGS_CHANNEL = "1341855677152231474"
 
 # Load the .env file
 load_dotenv()
@@ -239,8 +241,7 @@ async def main():
                 # webhook_url = "https://discord.com/api/webhooks/1336833568118407189/2fafP-VS3cMhtIO_oxVM7lnZcCYEHEtH5KLxCKOe4eIyWmgy1a1d-ykKAfcC7E8Akj6j"
 
                 #webhook_url = "https://discord.com/api/webhooks/1334304036844994582/CWSHarzIL5MIB2TZ7jtD9ZKn0hRWaABXf8MMV-ZpnDWC1EjJIfeurTPyUtbqkZ8i7srW"
-                chanel_id = "1245933521609162844"
-                await post_escalation_msg(chanel_id, webhook_data)
+                await post_escalation_msg(AUTOMATED_ESCALATIONS_CHANNEL, webhook_data)
                 await update_sentiment_alerted_at(tech_ticket_collection, res['tracking_id'])
 
         else:
