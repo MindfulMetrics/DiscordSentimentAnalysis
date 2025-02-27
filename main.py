@@ -114,12 +114,16 @@ async def post_msg(chanel_id: str, json_data: dict):
                 response_data = await response.json()
                 if response.status == 200:
                     print("POST request successful!")
+                    return True
                 else:
                     print(f"POST request failed with status code: {response.status}")
+                    return True
     except aiohttp.ClientError as e:
         print(f"An error occurred during the POST request: {e}")
+        return True
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+        return True
         
 async def update_sentiment_alerted_at(collection: Collection, tracking_id: str):
     # Get the current timestamp
@@ -138,7 +142,7 @@ async def update_sentiment_alerted_at(collection: Collection, tracking_id: str):
 
 
 # Execute the Main function every day at 7:49:00 AM PST
-#@group.task(trigger=At(tz="America/Los_Angeles", hour=7, minute=49, second=0))
+@group.task(trigger=At(tz="America/Los_Angeles", hour=7, minute=49, second=0))
 #@group.task(trigger=Once()) # Trigger once for testing
 async def main():
     print("🚀 main() task has started executing!")  # Debugging print
@@ -247,10 +251,10 @@ async def main():
             print(f"Conversation length: {transcript['length']} too short. Not processed")
 
 # Executes check_latency every hour
-#@group.task(trigger=Every(minutes=60)) 
-@group.task(trigger=Once()) # Trigger once for testing
+@group.task(trigger=Every(minutes=60)) 
+#@group.task(trigger=Once()) # Trigger once for testing
 async def check_latency():
-    print("⏳ Checking latency...")   
+    print("⏳ Checking latency...") 
     
     aa_motor_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("AA_MONGO_CONNECTION"))
     tech_ticket_collection = aa_motor_client.get_database('metrics-database').get_collection('tech_tickets')
@@ -258,37 +262,32 @@ async def check_latency():
    
     # Query to find open tickets where avg > 600 or max > 1200 & notifications have not been sent 
     query = {
-            "latency_stats": { "$exists": True },
-            "$and": [
-                {
+        "$and": [
+            { "latency_stats.notified": { "$exists": False } },
+            {
                 "$or": [
                     { "latency_stats.max_latency": { "$gt": 1200 } },
                     { "latency_stats.avg_latency": { "$gt": 600 } }
                 ]
-                },
-                {
-                "$or": [
-                    { "latency_stats.max_notified": False },
-                    { "latency_stats.avg_notified": False }
-                ]
-                }
-            ]
+            }
+        ]
         }
     projection = {"_id": 0,
                   "tracking_id": 1, 
                   "technician" : 1,
-                  "latency_stats": 1}
+                  "latency_stats": 1,
+                  "slack_url": 1}
     results = await tech_ticket_collection.find(query, projection).to_list(length=None)
     print(f"Found {len(results)} open tickets")
     latency_chanel_id = "1245933521609162844" #test value 
-    employeeProjection = {"discord_id":1}
+    employeeProjection = {"discord_id":1, "name":1}
     
     # Latency Notification
     for res in results:
-        print(res)
         employeeQuery = { "hs_id": res['technician'] }
         employeeResults = await employee_collection.find_one(employeeQuery, employeeProjection)
-        tech_discord_id = employeeResults['discord_id'][0]
+        # tech_discord_id = employeeResults['discord_id'][0]  # Not sure if needed 
+        tech_name = employeeResults['name']
         latency_webhook_data = {
             "embeds": [
                 {
@@ -298,42 +297,45 @@ async def check_latency():
                     "fields": [
                         {
                             "name": "📌 Ticket Link",
-                            "value": "[Click here to view the ticket](https://your-support-platform.com/ticket/12345)",
+                            "value": f"[Click here to view the ticket]({res['slack_url']})",
                             "inline": False
                         },
                         {
                             "name": "👤 Ticket Owner",
-                            "value": str(tech_discord_id),  # Ensure it's a string
+                            "value": str(tech_name),  
                             "inline": True
                         },
                         {
                             "name": "⏳ Min Latency",
-                            "value": f"{res['latency_stats']['min_latency']} minutes",  # Convert to string
+                            "value": f"{round(res['latency_stats']['min_latency'],2)} minutes", 
                             "inline": True
                         },
                         {
                             "name": "⏳ Avg Latency",
-                            "value": f"{res['latency_stats']['avg_latency']} minutes",  # Convert to string
+                            "value": f"{round(res['latency_stats']['avg_latency'],2)} minutes",  
                             "inline": True
                         },
                         {
                             "name": "⏳ Max Latency",
-                            "value": f"{res['latency_stats']['max_latency']} minutes",  # Convert to string
+                            "value": f"{round(res['latency_stats']['max_latency'],2)} minutes",  
                             "inline": True
                         }
                     ],
                     "footer": {
                         "text": "Support Team • Please prioritize this ticket"
-                    },  # ❌ Removed extra comma here
+                    },  
                     "timestamp": "2025-02-25T12:00:00Z"
                 }
             ]
             }
 
-            
-        await post_msg(latency_chanel_id, latency_webhook_data)
-        break
-
+        notification_successful = await post_msg(latency_chanel_id, latency_webhook_data)
+        print("notification sent")
+        now = datetime.now()  # Use UTC for consistency
+        if notification_successful:
+            query = { "tracking_id": res['tracking_id'] } 
+            update = { "$set": { "latency_stats.notified": now }} 
+            tech_ticket_collection.update_one(query, update)
 
 
 @asynccontextmanager
