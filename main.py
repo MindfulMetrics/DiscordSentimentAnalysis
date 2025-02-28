@@ -252,10 +252,10 @@ async def main():
             print(f"Conversation length: {transcript['length']} too short. Not processed")
 
 # Executes check_latency every hour
-@group.task(trigger=Every(minutes=60)) 
+@group.task(trigger=Every(minutes=60))
 #@group.task(trigger=Once()) # Trigger once for testing
 async def check_latency():
-    print("⏳ Checking latency...") 
+    print("⏳ Checking latency...")
     
     aa_motor_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("AA_MONGO_CONNECTION"))
     tech_ticket_collection = aa_motor_client.get_database('metrics-database').get_collection('tech_tickets')
@@ -264,7 +264,9 @@ async def check_latency():
     # Query to find open tickets where avg > 600 or max > 1200 & notifications have not been sent 
     query = {
         "$and": [
+            { "latency_stats": { "$exists": True } },
             { "latency_stats.notified": { "$exists": False } },
+            { "hs_pipeline_stage": 88539431 },
             {
                 "$or": [
                     { "latency_stats.max_latency": { "$gt": 1200 } },
@@ -272,7 +274,7 @@ async def check_latency():
                 ]
             }
         ]
-        }
+    }
     projection = {"_id": 0,
                   "tracking_id": 1, 
                   "technician" : 1,
@@ -280,7 +282,6 @@ async def check_latency():
                   "slack_url": 1}
     results = await tech_ticket_collection.find(query, projection).to_list(length=None)
     print(f"Found {len(results)} open tickets")
-    latency_chanel_id = "1245933521609162844" #test value 
     employeeProjection = {"discord_id":1, "name":1}
     
     # Latency Notification
