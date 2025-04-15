@@ -46,7 +46,7 @@ Analysis Guidelines:
 Required Output: JSON with escalation decision and supporting evidence
 """
 
-model = OpenAIModel('gpt-4o-mini', api_key=OPENAI_API_KEY)
+model = OpenAIModel('gpt-4.1-mini', api_key=OPENAI_API_KEY)
 
 # model = OpenAIModel(
 #     'qwen/qwen-turbo',
@@ -150,15 +150,15 @@ async def update_sentiment_alerted_at(collection: Collection, tracking_id: str):
         print(f"No document found with tracking_id: {tracking_id}")
 
 # Execute the Main function every day at 7:49:00 AM PST
-@group.task(trigger=At(tz="America/Los_Angeles", hour=9, minute=20, second=0))
-#@group.task(trigger=Once()) # Trigger once for testing
+#@group.task(trigger=At(tz="America/Los_Angeles", hour=9, minute=35, second=0))
+@group.task(trigger=Once()) # Trigger once for testing
 async def main():
     print("🚀 main() task has started executing!")  # Debugging print
 
     aa_motor_client = motor.motor_asyncio.AsyncIOMotorClient(os.getenv("AA_MONGO_CONNECTION"))
     tech_ticket_collection = aa_motor_client.get_database('metrics-database').get_collection('tech_tickets')
     yesterday = datetime.combine(datetime.now().date() - timedelta(days=1), datetime.min.time())
-    one_week_ago = datetime.combine(datetime.now().date() - timedelta(days=7), datetime.min.time())
+    one_week_ago = datetime.combine(datetime.now().date() - timedelta(days=3), datetime.min.time())
 
     # Query to find open tickets that have not been alerted in the last week or have never been alerted
     query = {
@@ -272,7 +272,7 @@ async def check_latency():
             { "hs_pipeline_stage": 88539431 }, # 88539431 is In Progress, 88539432 is the closed stage
             {
                 "$or": [
-                    { "latency_stats.max_latency": { "$gt": 3250 } },
+                    { "latency_stats.max_latency": { "$gt": 3750 } },
                     { "latency_stats.avg_latency": { "$gt": 1200 } }
                 ]
             }
