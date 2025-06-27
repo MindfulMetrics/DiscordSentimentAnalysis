@@ -1,18 +1,18 @@
-
 import os
 import asyncio
 import base64
 from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from pymongo.collection import Collection
 # from fastapi import FastAPI
 import aiohttp
 from dotenv import load_dotenv
 import motor.motor_asyncio
+from motor.motor_asyncio import AsyncIOMotorCollection 
 from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.gemini import GeminiModel
 # pylint: disable=unused-import
 from aioclock import AioClock, At, Once, Every
 from aioclock.group import Group
@@ -27,6 +27,7 @@ load_dotenv()
 group = Group()
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')  # Make sure this is set in your .env
 USERNAME = os.getenv('API_USERNAME')
 PASSWORD = os.getenv('API_PASSWORD')
 
@@ -46,7 +47,7 @@ Analysis Guidelines:
 Required Output: JSON with escalation decision and supporting evidence
 """
 
-model = OpenAIModel('gpt-4.1-mini', api_key=OPENAI_API_KEY)
+model = GeminiModel('gemini-2.5-flash', provider='google-gla')
 
 # model = OpenAIModel(
 #     'qwen/qwen-turbo',
@@ -65,7 +66,17 @@ sentiment_agent = Agent(
 )
 
 async def parse_discord_messages(discord_id: str) -> dict:
+    """Fetch and parse Discord messages for a given user ID via API.
+    
+    Args:
+        discord_id: Discord user ID to fetch messages for
+    
+    Returns:
+        Dictionary containing parsed message data from API
+    """
     url = f"http://134.195.91.7:5005/discord/{discord_id}/get_messages"
+    if USERNAME is None or PASSWORD is None:
+        raise ValueError("API_USERNAME and API_PASSWORD environment variables must be set.")
     async with aiohttp.ClientSession() as session:
         async with session.get(url, auth=aiohttp.BasicAuth(USERNAME, PASSWORD)) as response:
             if response.status == 200:
@@ -134,7 +145,7 @@ async def post_msg(chanel_id: str, json_data: dict):
         print(f"An error occurred during the POST request: {e}")
         return True
 
-async def update_sentiment_alerted_at(collection: Collection, tracking_id: str):
+async def update_sentiment_alerted_at(collection: AsyncIOMotorCollection, tracking_id: str):
     # Get the current timestamp
     current_time = datetime.now(timezone.utc)
 
