@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Literal
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
 from dataclasses import dataclass
@@ -54,16 +54,12 @@ class EscalationAnalysis(BaseModel):
         ge=0, le=100
     )
 
-    frustration_pattern: str = Field(...,
-                                     enum=["isolated", "persistent",
-                                           "escalating", "de-escalating"],
+    frustration_pattern: Literal["isolated", "persistent", "escalating", "de-escalating"] = Field(...,
                                      description="Pattern of customer frustration")
 
     trigger_phrases: List[str] = Field(...,
                                        description="Exact phrases requiring escalation",
                                        examples=[["I'm losing money", "This is unacceptable"]])
 
-    recommended_action: str = Field(...,
-                                    enum=["monitor", "escalate",
-                                          "urgent_escalate"],
+    recommended_action: Literal["monitor", "escalate", "urgent_escalate"] = Field(...,
                                     description="Immediate response recommendation")
